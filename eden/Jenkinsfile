@@ -74,8 +74,9 @@ pipeline {
                 container("jenkins-trigger-decision-maker") {
                     script {
                         (changeBranch, changeTarget, isPr, gitCommit, gitCommitOrigin, gitShortCommit, gitCommitAuthorEmail) = getGitInfo()
-                        echo "${env.CHANGE_TARGET}"
-                        echo "${env.BRANCH_NAME}"
+                        echo "change_target ${env.CHANGE_TARGET}"
+                        echo "change_branch ${env.CHANGE_BRANCH}"
+                        echo "branch_name ${env.BRANCH_NAME}"
                         trigger = jenkinsTriggerDecision(
                                 "${PROJECT_DIR_FULL_PATH}",
                                 params.forceTrigger,
