@@ -1,0 +1,115 @@
+library 'library@master'
+library 'kaas'
+
+def changeBranch, changeTarget, isPr, gitCommit, gitCommitOrigin, gitShortCommit, gitCommitAuthorEmail
+def trigger= false
+def phase = "phase1"
+def checkoutResult
+def scalaTestArgs = ""
+def sbtTestOnlyArgs = ""
+def testsTimeout = ""
+
+def RuntimeTestsArguments = [
+    'phase1': [
+        'timeout'        : "999", //"30",
+        'sbtTestOnlyArgs': "",
+        'scalaTestArgs'  : '-n com.sparkbeyond.tags.Fast'
+    ],
+    'phase2': [
+        'timeout'        : "999", //"360",
+        'sbtTestOnlyArgs': "*FastCI",
+        'scalaTestArgs'  : ""
+    ],
+    'phase3': [
+        'timeout'        : "999", // no timeout
+        'sbtTestOnlyArgs': "*SlowCI",
+        'scalaTestArgs'  : ""
+    ]
+]
+// this guarantees the node will use this template
+def podLabel = "runtime-${UUID.randomUUID().toString()}"
+def lifecycleNodeLabel = params.spotInstance ? "lifecycle=spot" : "lifecycle=normal"
+
+pipeline {
+    agent {
+        kubernetes {
+            label podLabel
+            yamlFile 'agent-dp-backend.yaml'
+            slaveConnectTimeout 600 // It takes a lot of time to load the backend agent due to lots of initContainers.
+            nodeSelector lifecycleNodeLabel
+        }
+    }
+    options {
+        buildDiscarder(logRotator(daysToKeepStr: "30", artifactDaysToKeepStr: "30"))
+        quietPeriod 10
+        timestamps()
+        skipStagesAfterUnstable()
+        disableConcurrentBuilds()
+        lock resource: """${env.BRANCH_NAME}-eden"""
+    }
+    parameters {
+        choice(name: 'pPhase', choices: ["phase1", "phase2", "phase3"])
+        booleanParam(name: 'spotInstance', defaultValue: false, description: "Run PR in spot instance")
+        string(name: 'pScalaTestArgs', defaultValue: "", description: "ScalaTest Arguments")
+        string(name: 'pSbtTestOnlyArgs', defaultValue: "", description: "sbt testOnly Arguments")
+        string(name: 'pTestsTimeout', defaultValue: "", description: "Timeout for the tests")
+        booleanParam(name: "buildForPr", defaultValue: true)
+        booleanParam(name: "forceTrigger", defaultValue: false)
+    }
+    environment {
+        PROJECT_DIR_RELATIVE = "eden"
+        PROJECT_DIR_FULL_PATH = "${WORKSPACE}/${PROJECT_DIR_RELATIVE}"
+    }
+    stages {
+        stage("Abort on new build") {
+            when {
+                changeRequest()
+            }
+            steps {
+                abortPreviousRunningBuilds()
+            }
+        }
+        stage("Setup") {
+            steps {
+                container("jenkins-trigger-decision-maker") {
+                    script {
+                        (changeBranch, changeTarget, isPr, gitCommit, gitCommitOrigin, gitShortCommit, gitCommitAuthorEmail) = getGitInfo()
+                        trigger = jenkinsTriggerDecision(
+                                "${PROJECT_DIR_FULL_PATH}",
+                                params.forceTrigger,
+                                [
+                                        "${PROJECT_DIR_RELATIVE}/README.md",
+                                ],
+                                [
+                                        "${PROJECT_DIR_RELATIVE}/../agent-dp-backend.yaml",
+                                        "${PROJECT_DIR_RELATIVE}/**/*",
+                                ]
+                        )
+
+                        phase = params.pPhase ?: phase
+                        currentBuild.displayName = "${phase} - ${changeBranch} | # ${env.BUILD_NUMBER}"
+                        scalaTestArgs = params.pScalaTestArgs ?: RuntimeTestsArguments[phase]['scalaTestArgs']
+                        sbtTestOnlyArgs = params.pSbtTestOnlyArgs ?: RuntimeTestsArguments[phase]['sbtTestOnlyArgs']
+                        testsTimeout = params.pTestsTimeout ?: RuntimeTestsArguments[phase]['timeout']
+                    }
+                }
+            }
+        }
+        stage("Trigger") {
+            when {
+                expression {
+                    return (trigger == true)
+                }
+            }
+            stages {
+                stage('test stage') {
+                    steps {
+                        script{
+                            echo "trigger works!"
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
