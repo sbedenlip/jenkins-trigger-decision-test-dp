@@ -180,7 +180,7 @@ spec:
         cpu: "500m"
 
   - name: jenkins-trigger-decision-maker
-    image: 551806661322.dkr.ecr.eu-west-1.amazonaws.com/kaas/jenkins-trigger-decision-maker:main-ab8fc4c
+    image: 551806661322.dkr.ecr.eu-west-1.amazonaws.com/kaas/jenkins-trigger-decision-maker:main-0371ca3
     imagePullPolicy: Always
     securityContext:
       runAsUser: 1000
